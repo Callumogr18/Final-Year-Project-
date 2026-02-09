@@ -1,0 +1,9 @@
+psycopg2
+pandas
+requests
+openai
+dotenv
+pyarrow
+datasets
+sacrebleu
+rouge
