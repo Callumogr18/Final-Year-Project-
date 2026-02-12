@@ -1,5 +1,6 @@
 import logging
 from dotenv import load_dotenv
+import subprocess, sys
 
 from DB.prompts.PromptManager import PromptManager, PromptBatch, PromptBatcher
 from DB.LLM_storage.ResponseManager import ResponseManager
@@ -17,51 +18,77 @@ logging.basicConfig(
 )
 
 if __name__ == '__main__':
-    logger.info("Establishing connection to DB")
-
-    conn = db_conn.get_connection()
-    if conn is None:
-        logger.error("Failed to connect to DB")
-        exit(1)
-    
-    logger.info("Connection to DB established, loading prompts...")
-
-    prompt_manager = PromptManager(conn)
-    llm_manager = ResponseManager(conn)
-
-    task_type = input("Enter task type >>> ")
-    prompts = prompt_manager.load_prompts_by_task(task_type)
-
-    if not prompts:
-        logger.error(f"No prompts found for task type: {task_type}")
-        conn.close()
-        exit(1)
-
-    logger.info("Checking if batch possible...")    
-    
-    # HARDCODED VAL - Address
-    if len(prompts) < 10:
-        logger.info("Not batching, not enough prompts")
-
-        logger.info("Generating responses from LLMs - No Batching")
-
-        for prompt in prompts:
-            generator = ResponseGenerator(prompt, prompt.id)
-            llm_manager.save_generations(generator.generation_data)
-    
+    if len(sys.argv) > 1 and sys.argv[1] == 'dashboard':
+        subprocess.run(["streamlit", "run", "dashboard.py"])
+        logger.info("Streamlit visualisations available...")
     else:
-        batches = prompt_manager.batch_prompts(prompts, batch_size=10)
+        logger.info("Establishing connection to DB")
 
-        logger.info(f"Created {len(batches)} from {len(prompts)}")
+        conn = db_conn.get_connection()
+        if conn is None:
+            logger.error("Failed to connect to DB")
+            exit(1)
+        
+        logger.info("Connection to DB established, loading prompts...")
 
-        for batch in batches:
-            logger.info(f"Processing batch - ID: {batch.batch_id} with {batch.size()}")
+        prompt_manager = PromptManager(conn)
+        llm_manager = ResponseManager(conn)
 
-            for prompt in batch.prompts:
+        run_type = int(input("Evaluate by...\n" \
+                            "1 - Prompt ID\n" \
+                            "2 - Task Type\n"
+                            ">>> "))
+        if run_type == 1:
+            id = input("Enter Prompt ID >>> ")
+
+            # Dealing with single prompt as list as makes it easier to 
+            # handle in rest of main
+            prompts = [prompt_manager.load_prompt_by_id(id)]
+        elif run_type == 2:
+            task_type = input("Enter task type >>> ")
+            prompts = prompt_manager.load_prompts_by_task(task_type)
+
+        if not prompts:
+            if run_type == 1:
+                logger.error(f"No prompts found for Prompt {id}")
+            else:
+                logger.error(f"No prompts found for Task Type {task_type}")
+            conn.close()
+            exit(1)
+
+        logger.info("Checking if batch possible...")    
+        
+        # HARDCODED VAL - Address
+        if len(prompts) < 10:
+            logger.info("Not batching, not enough prompts")
+
+            logger.info("Generating responses from LLMs - No Batching")
+
+            for prompt in prompts:
                 generator = ResponseGenerator(prompt, prompt.id)
                 llm_manager.save_generations(generator.generation_data)
-                bleu, r1, r2, rl = metric_scorer(generator.generation_data['llm_response'],  
-                                                prompt.reference_output, conn, prompt.id,
-                                                generator.generation_data['response_id'])
-        conn.close()
+                bleu, r1, r2, rl = metric_scorer(generator.generation_data['llm_response'],
+                                                    prompt.reference_output, conn, prompt.id,
+                                                    generator.generation_data['response_id'],
+                                                    batch_id=None)
+        
+            conn.close()
+        
+        else:
+            batches = prompt_manager.batch_prompts(prompts, batch_size=10)
+
+            logger.info(f"Created {len(batches)} from {len(prompts)}")
+
+            for batch in batches:
+                logger.info(f"Processing batch - ID: {batch.batch_id} with {batch.size()}")
+
+                for prompt in batch.prompts:
+                    generator = ResponseGenerator(prompt, prompt.id)
+                    llm_manager.save_generations(generator.generation_data)
+                    bleu, r1, r2, rl = metric_scorer(generator.generation_data['llm_response'],
+                                                    prompt.reference_output, conn, prompt.id,
+                                                    generator.generation_data['response_id'],
+                                                    batch_id=batch.batch_id)
+            conn.close()
+
     

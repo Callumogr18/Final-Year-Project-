@@ -18,7 +18,7 @@ class PromptManager:
     def load_prompts_by_task(self, task_type: str) -> List[Prompt]:
         valid_tasks = ['QA', 'Reasoning', 'Summarisation']
 
-        if task_type not in valid_tasks:
+        if task_type.upper() not in valid_tasks:
             logger.error(f"Invalid task type: {task_type}")
             return []
         
@@ -45,6 +45,31 @@ class PromptManager:
             prompts.append(prompt)
 
         return prompts
+
+
+    def load_prompt_by_id(self, id: int) -> Prompt:
+        logger.info(f"Fetching prompt {id} from DB...")
+
+        self.cursor.execute(
+            'SELECT "id", "task_type", "question", "ground_truths", "answer", "contexts" FROM public.prompts WHERE "id" = %s',
+            (id,)
+        )
+
+        row = self.cursor.fetchone()
+        if row is None:
+            logger.error(f"No Prompt {id} in DB")
+            return None
+
+        prompt = Prompt(
+                id=row[0],
+                task_type=row[1],
+                input_text=row[2],
+                reference_output=row[3],
+                answer=row[4],
+                contexts=row[5]
+            )
+        
+        return prompt
     
 
     def batch_prompts(self, prompts: List[Prompt], batch_size: int = 10) -> List[PromptBatch]:
