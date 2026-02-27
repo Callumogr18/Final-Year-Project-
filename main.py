@@ -2,7 +2,7 @@ import logging
 from dotenv import load_dotenv
 import subprocess, sys
 
-from DB.prompts.PromptManager import PromptManager, PromptBatch, PromptBatcher
+from DB.prompts.PromptManager import PromptManager
 from DB.LLM_storage.ResponseManager import ResponseManager
 from DB import db_conn
 from LLM.ResponseGenerator import ResponseGenerator
@@ -38,15 +38,20 @@ if __name__ == '__main__':
                             "1 - Prompt ID\n" \
                             "2 - Task Type\n"
                             ">>> "))
-        if run_type == 1:
-            id = input("Enter Prompt ID >>> ")
+        try:
+            if run_type == 1:
+                id = input("Enter Prompt ID >>> ")
 
-            # Dealing with single prompt as list as makes it easier to 
-            # handle in rest of main
-            prompts = [prompt_manager.load_prompt_by_id(id)]
-        elif run_type == 2:
-            task_type = input("Enter task type >>> ")
-            prompts = prompt_manager.load_prompts_by_task(task_type)
+                # Dealing with single prompt as list as makes it easier to 
+                # handle in rest of main
+                prompts = [prompt_manager.load_prompt_by_id(id)]
+            elif run_type == 2:
+                task_type = input("Enter task type >>> ")
+                prompts = prompt_manager.load_prompts_by_task(task_type)
+
+        except ValueError as e:
+            logger.error(f"Integer value of 1 or 2 expected got {run_type} - {e}")
+            exit(1)
 
         if not prompts:
             if run_type == 1:
