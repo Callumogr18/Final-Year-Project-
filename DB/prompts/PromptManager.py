@@ -16,7 +16,7 @@ class PromptManager:
         logger.info(f'PromptManager initialised')
 
     def load_prompts_by_task(self, task_type: str) -> List[Prompt]:
-        valid_tasks = ['QA', 'Reasoning', 'Summarisation']
+        valid_tasks = ['QA', 'REASONING', 'SUMMARISATION']
 
         if task_type.upper() not in valid_tasks:
             logger.error(f"Invalid task type: {task_type}")
@@ -25,9 +25,12 @@ class PromptManager:
         logger.info(f"Getting {task_type} prompts from DB...")
 
         self.cursor.execute(
-            'SELECT "id", "task_type", "question", "ground_truths", "answer", "contexts" FROM public.prompts WHERE "task_type" = %s',
+            '''SELECT "id", "task_type", "question", "ground_truths", 
+            "answer", "contexts", "article", "highlights" 
+            FROM public.prompts WHERE "task_type" = %s''',
             (task_type,)
         )
+
         rows = self.cursor.fetchall()
 
         logger.info(f"Gathered {len(rows)} from DB")
@@ -40,7 +43,9 @@ class PromptManager:
                 input_text=row[2],
                 reference_output=row[3],
                 answer=row[4],
-                contexts=row[5]
+                contexts=row[5],
+                article=row[6],
+                highlights=row[7]
             )
             prompts.append(prompt)
 

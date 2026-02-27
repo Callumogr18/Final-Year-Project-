@@ -5,24 +5,28 @@ from uuid import uuid4
 bleu = BLEU()
 rouge = Rouge()
 
-def metric_scorer(response, reference, conn, prompt_id, response_id, batch_id=None):
+
+def metric_scorer(response, reference, conn, prompt_id, response_id, task_type, batch_id=None):
+    if task_type.upper() == 'SUMMARISATION':
+        ref_text = reference if isinstance(reference, str) else reference[0]
+    else:
+        ref_text = reference[0] if isinstance(reference, list) else reference
+
     bleu_score = bleu.sentence_score(
         hypothesis=response,
-        references=[reference[0]],
+        references=[ref_text],
     )
-
     rouge_score = rouge.get_scores(
         hyps=response,
-        refs=reference[0]
+        refs=ref_text
     )
+
     r1 = rouge_score[0]['rouge-1']['f']
     r2 = rouge_score[0]['rouge-2']['f']
     rl = rouge_score[0]['rouge-l']['f']
 
     scores = [bleu_score.score / 100, r1, r2, rl]
     save_scores(scores, response_id, prompt_id, conn, batch_id)
-
-    return bleu_score.score, r1, r2, rl
 
 
 def save_scores(scores, response_id, prompt_id, conn, batch_id=None):

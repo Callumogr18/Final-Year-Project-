@@ -6,7 +6,8 @@ from DB.prompts.PromptManager import PromptManager
 from DB.LLM_storage.ResponseManager import ResponseManager
 from DB import db_conn
 from LLM.ResponseGenerator import ResponseGenerator
-from metrics.traditional.scorer import metric_scorer, save_scores
+from metrics.traditional.scorer import metric_scorer
+from LLM.clients import azure_client
 
 load_dotenv()
 
@@ -61,24 +62,28 @@ if __name__ == '__main__':
             conn.close()
             exit(1)
 
-        logger.info("Checking if batch possible...")    
-        
+        clients = [azure_client.AzureClient()]
+
+        logger.info("Checking if batch possible...")
+
         # HARDCODED VAL - Address
         if len(prompts) < 10:
             logger.info("Not batching, not enough prompts")
-
             logger.info("Generating responses from LLMs - No Batching")
 
             for prompt in prompts:
-                generator = ResponseGenerator(prompt, prompt.id)
-                llm_manager.save_generations(generator.generation_data)
-                bleu, r1, r2, rl = metric_scorer(generator.generation_data['llm_response'],
-                                                    prompt.reference_output, conn, prompt.id,
-                                                    generator.generation_data['response_id'],
-                                                    batch_id=None)
-        
+                generator = ResponseGenerator(prompt, clients)
+                reference = prompt.highlights if prompt.task_type.upper() == 'SUMMARISATION' else prompt.reference_output
+                for gen_data in generator.generations:
+                    llm_manager.save_generations(gen_data)
+                    metric_scorer(gen_data['llm_response'],
+                                reference, conn, prompt.id,
+                                gen_data['response_id'],
+                                prompt.task_type,
+                                batch_id=None)
+
             conn.close()
-        
+
         else:
             batches = prompt_manager.batch_prompts(prompts, batch_size=10)
 
@@ -88,12 +93,15 @@ if __name__ == '__main__':
                 logger.info(f"Processing batch - ID: {batch.batch_id} with {batch.size()}")
 
                 for prompt in batch.prompts:
-                    generator = ResponseGenerator(prompt, prompt.id)
-                    llm_manager.save_generations(generator.generation_data)
-                    bleu, r1, r2, rl = metric_scorer(generator.generation_data['llm_response'],
-                                                    prompt.reference_output, conn, prompt.id,
-                                                    generator.generation_data['response_id'],
-                                                    batch_id=batch.batch_id)
+                    generator = ResponseGenerator(prompt, clients)
+                    reference = prompt.highlights if prompt.task_type.upper() == 'SUMMARISATION' else prompt.reference_output
+                    for gen_data in generator.generations:
+                        llm_manager.save_generations(gen_data)
+                        metric_scorer(gen_data['llm_response'],
+                                    reference, conn, prompt.id,
+                                    gen_data['response_id'],
+                                    prompt.task_type,
+                                    batch_id=batch.batch_id)
             conn.close()
 
     

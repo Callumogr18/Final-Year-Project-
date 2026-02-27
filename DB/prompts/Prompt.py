@@ -8,6 +8,8 @@ class Prompt:
     reference_output: str
     answer: str
     contexts: str
+    article: str = None
+    highlights: str = None
 
     def to_dict(self):
         return {
