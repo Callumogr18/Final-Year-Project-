@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from dotenv import load_dotenv
 import subprocess, sys
 
@@ -8,7 +9,7 @@ from DB.LLM_storage.ResponseManager import ResponseManager
 from DB import db_conn
 from LLM.ResponseGenerator import ResponseGenerator
 from metrics.traditional.scorer import metric_scorer
-from LLM.clients import azure_client
+from LLM.clients import openai_client
 from LLM.judge.judge import LLMAsJudge
 from LLM.judge.helper import save_judge_scores
 
@@ -84,7 +85,12 @@ if __name__ == '__main__':
             few_shot_example = prompts.pop(0)
             logger.info(f"Using prompt {few_shot_example.id} as few-shot example for summarisation")
 
-        clients = [azure_client.AzureClient()]
+        clients = [
+            openai_client.OpenAIClient(os.getenv("GPT_ENDPOINT"), os.getenv("API_KEY"), os.getenv("GPT_MODEL")),
+            openai_client.OpenAIClient(os.getenv("GROK_ENDPOINT"), os.getenv("API_KEY"), os.getenv("GROK_MODEL")),
+            openai_client.OpenAIClient(os.getenv("PHI_ENDPOINT"), os.getenv("API_KEY"), os.getenv("PHI_MODEL")),
+            openai_client.OpenAIClient(os.getenv("LLAMA_ENDPOINT"), os.getenv("API_KEY"), os.getenv("LLAMA_MODEL")),
+        ]
         judge = LLMAsJudge()
 
         logger.info("Checking if batch possible...")
@@ -137,4 +143,3 @@ if __name__ == '__main__':
                         save_judge_scores(judge_result, gen_data['response_id'], prompt.id, conn, prompt.task_type, batch_id=batch.batch_id)
             conn.close()
 
-    

@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel
 
 
@@ -11,9 +12,11 @@ class SubQuestionAnswer(BaseModel):
     Attributes:
         question: The evaluation question asked of the judge
         answer: The judge's boolean response (True = yes, False = no).
+        explanation: A brief explanation required when answer is False.
     """
     question: str
     answer: bool
+    explanation: Optional[str] = None
 
 
 class MetricEvaluation(BaseModel):
@@ -21,7 +24,7 @@ class MetricEvaluation(BaseModel):
     The LLM judge's evaluation of a single metric (e.g. Hallucination, Fluency)
 
     Aggregates a list of yes/no sub-questions for the metric and provides helpers
-    to compute a normalised score and a human-readable summary
+    to compute a normalised score and a human readable summary
 
     Attributes:
         metric: Name of the evaluation metric (e.g. "Hallucination")

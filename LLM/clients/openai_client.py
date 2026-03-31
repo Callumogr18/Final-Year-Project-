@@ -1,4 +1,4 @@
-from openai import AzureOpenAI, BadRequestError
+from openai import OpenAI, BadRequestError
 from dotenv import load_dotenv
 from uuid import uuid4
 import os
@@ -10,12 +10,12 @@ from .base import SYSTEM_PROMPTS, BaseLLMClient
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-class AzureClient(BaseLLMClient):
-    def __init__(self):
-        self.client = AzureOpenAI(
-            api_version=os.getenv("AZURE_API_V"),
-            azure_endpoint=os.getenv("AZURE_ENDPOINT"),
-            api_key=os.getenv("AZURE_API_KEY")
+class OpenAIClient(BaseLLMClient):
+    def __init__(self, endpoint, key, model_name):
+        self.model_name = model_name
+        self.client = OpenAI(
+            base_url=endpoint,
+            api_key=key
         )
 
     def build_messages(self, prompt, few_shot_example=None):
@@ -46,8 +46,8 @@ class AzureClient(BaseLLMClient):
             start_time = time.time()
             response = self.client.chat.completions.create(
                 messages=self.build_messages(prompt, few_shot_example),
-                temperature=0.2,
-                model=os.getenv("AZURE_MODEL")
+                temperature=0.6,
+                model=self.model_name
             )
             end_time = time.time()
 
@@ -62,9 +62,9 @@ class AzureClient(BaseLLMClient):
                 'latency_ms': (end_time - start_time) * 1000
             }
         except BadRequestError as e:
-            if e.code == 'content_filter':
+            if e.code == 'content_filter' or 'content_filter' in str(e).lower():
                 logger.warning(f"Prompt {prompt.id} filtered by content policy, skipping.")
                 return {'response_id': str(uuid4()), 'llm_response': None, 'prompt_id': prompt.id,
                         'tokens_generated': 0, 'tokens_prompt': 0, 'total_tokens': 0,
-                        'model_name': os.getenv("AZURE_MODEL"), 'latency_ms': 0}
+                        'model_name': self.model_name, 'latency_ms': 0}
             raise

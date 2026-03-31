@@ -1,4 +1,6 @@
 import os
+import re
+import json
 import logging
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
@@ -12,7 +14,12 @@ logger = logging.getLogger(__name__)
 JUDGE_SYSTEM_PROMPT = (
     "You are a strict evaluation judge. "
     "You will be given an input, a context, and a model response. "
-    "Answer each question with YES or NO only. No explanation."
+    "For each question, answer YES or NO. "
+    "When you answer NO, you must also provide a brief explanation (1-2 sentences) citing the specific part of the response that caused the failure. "
+    "When you answer YES, leave the explanation as an empty string. "
+    "You MUST respond with a single valid JSON object. Do not include any text outside the JSON. "
+    "Do not use newlines or special characters inside string values. "
+    f"The JSON must match this schema exactly: {json.dumps(JudgeEvaluation.model_json_schema())}"
 )
 
 
@@ -60,12 +67,11 @@ METRIC_QUESTIONS = {
 class LLMAsJudge:
     def __init__(self):
         self.client = AzureChatOpenAI(
-            azure_deployment=os.getenv("AZURE_JUDGE_MODEL"),
-            azure_endpoint=os.getenv("AZURE_ENDPOINT"),
-            api_key=os.getenv("AZURE_API_KEY"),
-            api_version=os.getenv("AZURE_API_V"),
-            temperature=0,
-            max_retries=2,
+            azure_deployment=os.getenv("JUDGE_MODEL"),
+            azure_endpoint=os.getenv("JUDGE_ENDPOINT"),
+            api_key=os.getenv("JUDGE_KEY"),
+            api_version=os.getenv("JUDGE_API_V"),
+            temperature=0
         )
 
     def build_message(self, prompt, llm_response):
@@ -74,8 +80,6 @@ class LLMAsJudge:
             else prompt.contexts or prompt.article or ""
         )
 
-        # For prompts with no context (e.g. TruthfulQA), fall back to the
-        # reference answer so the judge has a ground truth to evaluate against.
         if not context and prompt.reference_output:
             context_block = f"Reference Answer:\n{prompt.reference_output}"
         else:
@@ -102,10 +106,15 @@ class LLMAsJudge:
 
     def evaluate(self, prompt, llm_response):
         messages = self.build_message(prompt, llm_response)
-        structured_client = self.client.with_structured_output(JudgeEvaluation)
-        result: JudgeEvaluation = structured_client.invoke(messages)
+        response = self.client.invoke(messages)
 
-        for metric in result.metrics:
-            logger.info(metric.summary())
+        raw_text = response.content
+        # Strip control characters that make JSON invalid (keep \t, \n, \r)
+        clean = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', raw_text)
+        # Extract JSON object in case there is any surrounding text
+        match = re.search(r'\{.*\}', clean, re.DOTALL)
+        if not match:
+            raise ValueError(f"No JSON object found in judge response for prompt {prompt.id}")
+        result: JudgeEvaluation = JudgeEvaluation.model_validate_json(match.group())
 
         return result

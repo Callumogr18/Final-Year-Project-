@@ -38,4 +38,13 @@ def save_judge_scores(results, response_id: str,
             scores.get("factual_accuracy"),
         ),
     )
+    for metric in results.metrics:
+        for qa in metric.answers:
+            cursor.execute(
+                """
+                INSERT INTO public.judge_explanations (id, response_id, prompt_id, metric, question, answer, explanation)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (str(uuid4()), response_id, prompt_id, metric.metric, qa.question, qa.answer, qa.explanation)
+            )
     conn.commit()
