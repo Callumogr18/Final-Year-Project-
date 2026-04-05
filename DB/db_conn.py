@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 def get_connection():
     try:
         logger.info('Connecting to DB...')
-        conn = pg.connect(os.getenv("DB_URL"))
+        conn = pg.connect(os.getenv("DATABASE_URL") or os.getenv("DB_URL"))
         logger.info('Successfully connected to DB')
         return conn
     except Exception as error:

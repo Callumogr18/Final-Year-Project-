@@ -2,9 +2,11 @@ import os
 import re
 import json
 import logging
+import time
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+from openai import RateLimitError
 
 from LLM.judge.pydantic_models import JudgeEvaluation
 
@@ -104,9 +106,19 @@ class LLMAsJudge:
             HumanMessage(content=human_content),
         ]
 
-    def evaluate(self, prompt, llm_response):
+    def evaluate(self, prompt, llm_response, max_retries=5):
         messages = self.build_message(prompt, llm_response)
-        response = self.client.invoke(messages)
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.invoke(messages)
+                break
+            except RateLimitError:
+                wait = 2 ** attempt
+                logger.warning(f"Judge rate limited on prompt {prompt.id}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait)
+        else:
+            raise RuntimeError(f"Judge failed after {max_retries} retries due to rate limiting on prompt {prompt.id}")
 
         raw_text = response.content
         # Strip control characters that make JSON invalid (keep \t, \n, \r)
