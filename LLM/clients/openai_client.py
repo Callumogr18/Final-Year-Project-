@@ -10,9 +10,17 @@ from .base import SYSTEM_PROMPTS, BaseLLMClient
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+# Default per-request timeout in seconds. Callers can override via the
+# `request_timeout` constructor argument.  main.py benefits from the same
+# default; the performance test suite passes a tighter value so no single
+# stuck request can block the whole run.
+_DEFAULT_TIMEOUT_S: float = 30.0
+
+
 class OpenAIClient(BaseLLMClient):
-    def __init__(self, endpoint, key, model_name):
+    def __init__(self, endpoint, key, model_name, request_timeout: float = _DEFAULT_TIMEOUT_S):
         self.model_name = model_name
+        self._request_timeout = request_timeout
         self.client = OpenAI(
             base_url=endpoint,
             api_key=key
@@ -47,7 +55,8 @@ class OpenAIClient(BaseLLMClient):
             response = self.client.chat.completions.create(
                 messages=self.build_messages(prompt, few_shot_example),
                 temperature=0.6,
-                model=self.model_name
+                model=self.model_name,
+                timeout=self._request_timeout,
             )
             end_time = time.time()
 
@@ -67,4 +76,22 @@ class OpenAIClient(BaseLLMClient):
                 return {'response_id': str(uuid4()), 'llm_response': None, 'prompt_id': prompt.id,
                         'tokens_generated': 0, 'tokens_prompt': 0, 'total_tokens': 0,
                         'model_name': self.model_name, 'latency_ms': 0}
+            raise
+        except Exception as e:
+            # Covers httpx.ReadTimeout, openai.APITimeoutError, and similar
+            if 'timeout' in type(e).__name__.lower() or 'timeout' in str(e).lower():
+                logger.warning(
+                    "Request timed out for model=%s prompt=%s after %.0fs, skipping.",
+                    self.model_name, prompt.id, self._request_timeout,
+                )
+                return {
+                    'response_id': str(uuid4()),
+                    'llm_response': None,
+                    'prompt_id': prompt.id,
+                    'tokens_generated': 0,
+                    'tokens_prompt': 0,
+                    'total_tokens': 0,
+                    'model_name': self.model_name,
+                    'latency_ms': self._request_timeout * 1000,
+                }
             raise

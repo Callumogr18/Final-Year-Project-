@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 from typing import Optional
 from uuid import uuid4
 from fastapi import FastAPI, BackgroundTasks, HTTPException
@@ -20,14 +21,13 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s: %(message)s')
 
-app = FastAPI(title="LLM Evaluation API", version="1.0.0")
+app = FastAPI(title="LLM Evaluation API")
 
-# In-memory job store (sufficient for demo/FYP context)
 jobs = {}
-
 
 class EvaluateRequest(BaseModel):
     task_type: Optional[str] = None
+    prompt_ids: Optional[list[int]] = None
     limit: int = 1
 
 
@@ -40,24 +40,34 @@ class JobStatus(BaseModel):
 
 @app.get("/health")
 def health_check():
-    """Liveness check for the service."""
+    """
+    Liveness check for the service
+    """
+
+    logger.info("Health Status: Ok")
     return {"status": "ok"}
 
 
+
+
+
 @app.get("/prompts")
-def list_prompts(task_type: Optional[str] = None):
-    """List available prompts, optionally filtered by task type."""
+def list_prompts(task_type):
+    """
+    List available prompts, optionally filtered by task type
+    """
     conn = get_connection()
     if conn is None:
         raise HTTPException(status_code=503, detail="Database connection failed")
+    
+    logger.info("Successful connection to DB...")
 
     pm = PromptManager(conn)
     try:
         if task_type:
             prompts = pm.load_prompts_by_task(task_type)
-        else:
-            prompts = pm.load_prompts_by_task("QA") + pm.load_prompts_by_task("SUMMARISATION")
 
+        logger.info(f"Num. prompts retrieved = {len(prompts)}")
         return {
             "count": len(prompts),
             "prompts": [
@@ -70,19 +80,28 @@ def list_prompts(task_type: Optional[str] = None):
             ],
         }
     finally:
+        logger.info("Closing connection to DB...")
         conn.close()
 
 
 @app.post("/evaluate")
 def start_evaluation(request: EvaluateRequest, background_tasks: BackgroundTasks):
-    """Trigger an evaluation job. Returns immediately with a job ID."""
+    """
+    Trigger an evaluation job. Returns immediately with a job ID
+    """
     job_id = str(uuid4())
     jobs[job_id] = {"status": "running", "message": "Evaluation in progress", "count": 0}
 
+    logger.info(f"Job ID = {job_id}")
+
+    if not request.task_type and not request.prompt_ids:
+        raise HTTPException(status_code=400, detail="Provide task_type or prompt_ids")
+
     background_tasks.add_task(
-        _evaluate_task,
+        evaluate_task,
         job_id=job_id,
         task_type=request.task_type,
+        prompt_ids=request.prompt_ids,
         limit=request.limit,
     )
 
@@ -91,14 +110,18 @@ def start_evaluation(request: EvaluateRequest, background_tasks: BackgroundTasks
 
 @app.get("/jobs/{job_id}")
 def get_job_status(job_id: str):
-    """Poll for job completion and results."""
+    """
+    Poll for job completion and results
+    """
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
+    
+    logger.info(f"Job found:\n{jobs[job_id]}")
 
     return jobs[job_id]
 
 
-def _evaluate_task(job_id: str, task_type: Optional[str], limit: int):
+def evaluate_task(job_id, task_type, limit, prompt_ids=None):
     """Background task that runs the evaluation pipeline."""
     conn = get_connection()
     if conn is None:
@@ -114,15 +137,16 @@ def _evaluate_task(job_id: str, task_type: Optional[str], limit: int):
         rm = ResponseManager(conn)
         judge = LLMAsJudge()
 
-        # Load prompts
-        if task_type:
-            all_prompts = pm.load_prompts_by_task(task_type)
+        if prompt_ids:
+            prompts = pm.load_prompts_by_ids(prompt_ids)
+        elif task_type:
+            prompts = pm.load_prompts_by_task(task_type)[:limit]
         else:
-            all_prompts = pm.load_prompts_by_task("QA") + pm.load_prompts_by_task("SUMMARISATION")
+            prompts = []
+            logger.warning("Prompts list empty")
 
-        prompts = all_prompts[:limit]
+        logger.info(f"Num. prompts to be evaluated: {len(prompts)}")
 
-        # Initialize clients
         clients = [
             openai_client.OpenAIClient(
                 os.getenv("GPT_ENDPOINT"),
@@ -177,7 +201,8 @@ def _evaluate_task(job_id: str, task_type: Optional[str], limit: int):
                     prompt.task_type,
                 )
 
-                # Judge evaluation
+                # Judge evaluation (brief pause to avoid Azure rate limits)
+                time.sleep(2)
                 judge_result = judge.evaluate(prompt, gen_data["llm_response"])
                 save_judge_scores(
                     judge_result,

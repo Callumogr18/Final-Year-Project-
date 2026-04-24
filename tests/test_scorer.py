@@ -5,7 +5,7 @@ DB writes are mocked so no live connection is required.
 Short, known strings are used where BLEU/ROUGE values are predictable.
 """
 import pytest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from metrics.traditional.scorer import metric_scorer
 

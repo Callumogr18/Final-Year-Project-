@@ -12,7 +12,9 @@ from DB.prompts.Prompt import Prompt
 # Helper Functions
 
 def _make_mock_conn(fetchall_return=None, fetchone_return=None):
-    """Return (conn, cursor) mocks pre-configured with the given return values."""
+    """
+    Return (conn, cursor) mocks pre-configured with the given return values
+    """
     conn = MagicMock()
     cursor = MagicMock()
     conn.cursor.return_value = cursor
@@ -35,7 +37,9 @@ def _sample_row(
 
 
 def _make_prompts(n, task_type='QA'):
-    """Create n minimal Prompt objects for batching tests."""
+    """
+    Create n minimal Prompt objects
+    """
     return [
         Prompt(
             id=i,
@@ -63,7 +67,9 @@ class TestLoadPromptsByTask:
         assert all(isinstance(p, Prompt) for p in result)
 
     def test_uppercase_normalisation(self):
-        """Input 'qa' should be normalised to 'QA' and hit the DB."""
+        """
+        Input 'qa' should be normalised to 'QA' and hit the DB
+        """
         rows = [_sample_row()]
         conn, cursor = _make_mock_conn(fetchall_return=rows)
         manager = PromptManager(conn)

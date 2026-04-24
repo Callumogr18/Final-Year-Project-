@@ -67,13 +67,15 @@ METRIC_QUESTIONS = {
 }
 
 class LLMAsJudge:
-    def __init__(self):
+    def __init__(self, request_timeout: float = 30.0):
+        self._request_timeout = request_timeout
         self.client = AzureChatOpenAI(
             azure_deployment=os.getenv("JUDGE_MODEL"),
             azure_endpoint=os.getenv("JUDGE_ENDPOINT"),
             api_key=os.getenv("JUDGE_KEY"),
             api_version=os.getenv("JUDGE_API_V"),
-            temperature=0
+            temperature=0,
+            request_timeout=request_timeout,
         )
 
     def build_message(self, prompt, llm_response):
@@ -106,19 +108,32 @@ class LLMAsJudge:
             HumanMessage(content=human_content),
         ]
 
-    def evaluate(self, prompt, llm_response, max_retries=5):
+    def evaluate(self, prompt, llm_response, max_retries: int = 2):
+        """Evaluate an LLM response with the judge.
+
+        max_retries caps retry attempts on RateLimitError.  Default is 2 so
+        that worst-case backoff is 2+4 = 6 s rather than 2+4+8+16+32 = 62 s.
+        A per-prompt wall-clock budget of (request_timeout * (max_retries + 1))
+        bounds total time even if every attempt hits the timeout.
+        """
         messages = self.build_message(prompt, llm_response)
 
-        for attempt in range(max_retries):
+        for attempt in range(max_retries + 1):
             try:
                 response = self.client.invoke(messages)
                 break
             except RateLimitError:
-                wait = 2 ** attempt
-                logger.warning(f"Judge rate limited on prompt {prompt.id}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})")
+                if attempt >= max_retries:
+                    raise RuntimeError(
+                        f"Judge failed after {max_retries + 1} attempts due to rate limiting "
+                        f"on prompt {prompt.id}"
+                    )
+                wait = 2 ** (attempt + 1)  # 2s, 4s
+                logger.warning(
+                    "Judge rate limited on prompt %s, retrying in %ds (attempt %d/%d)",
+                    prompt.id, wait, attempt + 1, max_retries,
+                )
                 time.sleep(wait)
-        else:
-            raise RuntimeError(f"Judge failed after {max_retries} retries due to rate limiting on prompt {prompt.id}")
 
         raw_text = response.content
         # Strip control characters that make JSON invalid (keep \t, \n, \r)
